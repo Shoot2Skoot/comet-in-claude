@@ -1,0 +1,5 @@
+{
+  "name": "comet-in-claude",
+  "owner": { "name": "Shoot2Skoot" },
+  "plugins": [{ "name": "astronaut-buddy", "source": "./" }]
+}

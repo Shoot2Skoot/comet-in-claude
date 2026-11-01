@@ -1,0 +1,20 @@
+{
+  "name": "astronaut-buddy",
+  "version": "0.1.0",
+  "description": "A little astronaut who floats beside the chat and acts out what Claude is doing",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "name": {
+      "type": "string",
+      "title": "Astronaut name",
+      "description": "What your astronaut is called. Shown on the panel and in the text-only view.",
+      "default": "Comet"
+    },
+    "alienName": {
+      "type": "string",
+      "title": "Alien name",
+      "description": "What the little alien your astronaut pats is called. Shown on a tag under the alien and in the text-only view. Up to 16 characters.",
+      "default": "Blip"
+    }
+  }
+}

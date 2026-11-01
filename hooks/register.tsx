@@ -1,0 +1,311 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { Buddy, Mood, ToolKind } from '../types'
+import { ALTS, RANDOM_ALTS, describe, svgFor } from './art'
+
+const PANE = 'astronaut'
+const DEFAULT_NAME = 'Comet'
+const DEFAULT_ALIEN = 'Blip'
+// Long enough for a real name, short enough to fit the tag under the alien.
+const ALIEN_NAME_MAX = 16
+// Nothing happening for this long sends the astronaut to sleep.
+const SLEEP_AFTER_MS = 5 * 60 * 1000
+// How long the one-off reactions show before going back.
+const HELLO_MS = 3500
+const WAKE_MS = 2200
+const DONE_MS = 5000
+const ERR_MS = 2500
+const ABORT_MS = 2500
+// A tool still running after this long switches to the waiting animation.
+const LONG_TOOL_MS = 20_000
+// A turn that ran at least this long gets fireworks when it finishes.
+const LONG_TURN_MS = 2 * 60 * 1000
+const FIREWORKS = 3
+
+const buddy = atom({ plugin: 'astronaut-buddy', key: 'buddy' } as const, {
+  mood: 'idle',
+  tool: 'wrist',
+  o2: null,
+  alt: 0,
+} as Buddy)
+
+// What the turn in flight is doing. These start over when the mod reloads,
+// which is fine: they only describe the moment.
+let isBusy = false
+let toolsRunning = 0
+let agentsRunning = 0
+let thinkAlt = 0
+let lastActive = 0
+let wakeUntil = 0
+let revert: { cancel: () => void } | undefined
+let ticker: { cancel: () => void } | undefined
+
+const TEST_RUN =
+  /\b(pytest|jest|vitest|mocha|rspec|phpunit|go test|cargo test|dotnet test|(npm|pnpm|yarn|bun)( run)? test|playwright test|claude plugin test)\b/
+const INSTALL =
+  /\b((npm|pnpm|yarn|bun) (install|i|add)|pip3? install|uv (add|pip install)|brew install|apt(-get)? install|cargo (add|install)|gem install|go get)\b/
+const BUILD =
+  /\b((npm|pnpm|yarn|bun) (run )?build|tsc|cargo build|go build|make|vite build|next build|gradle|mvn|xcodebuild|docker build)\b/
+const DELETE = /(^|[;&|]\s*|\s)(rm|rmdir|trash|del|unlink)\s/
+const GIT_SHIP = /\bgit\s+(commit|push|merge|tag)\b/
+const IMAGE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|tiff?)$/i
+const SENDING = /(send|reply|forward|post|draft)/i
+const MESSAGING = /(mail|slack|teams|imessage|message|sms)/i
+
+function field(input: unknown, key: string): string {
+  if (typeof input !== 'object' || input === null) return ''
+  const value = (input as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : ''
+}
+
+// Which animation a tool gets.
+function kindOf(tool: string, input: unknown): ToolKind {
+  if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool)) return 'laptop'
+  if (tool === 'Read' && IMAGE.test(field(input, 'file_path'))) return 'photo'
+  if (/^(Read|Grep|Glob|LS)$/.test(tool)) return 'mine'
+  if (/^(WebSearch|WebFetch)$/.test(tool)) return 'web'
+  if (/^(TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet)$/.test(tool)) return 'list'
+  if (/^(ExitPlanMode|EnterPlanMode)$/.test(tool)) return 'map'
+  if (/(screenshot|snapshot|capture)/i.test(tool)) return 'photo'
+  if (/(browser|chrome|navigate|computer|playwright|tabs_)/i.test(tool)) return 'rover'
+  if (/memory/i.test(tool)) return 'log'
+  if (MESSAGING.test(tool) && SENDING.test(tool)) return 'mail'
+  if (tool.startsWith('mcp__')) return 'radio'
+  if (/^(Bash|PowerShell)$/.test(tool)) {
+    const command = field(input, 'command')
+    if (GIT_SHIP.test(command)) return 'flag'
+    if (TEST_RUN.test(command)) return 'lab'
+    if (INSTALL.test(command)) return 'crate'
+    if (BUILD.test(command)) return 'build'
+    if (DELETE.test(command)) return 'trash'
+    return 'weld'
+  }
+  if (/^(BashOutput|KillShell)$/.test(tool)) return 'weld'
+  return 'wrist'
+}
+
+function pick(count: number, not?: number): number {
+  if (count <= 1) return 0
+  let n = Math.floor(Math.random() * count)
+  if (n === not) n = (n + 1) % count
+  return n
+}
+
+// Thinking keeps one version for the whole turn so it doesn't flicker
+// between versions every time a tool finishes. The others pick fresh.
+function altFor(mood: Mood): number {
+  return mood === 'think' ? thinkAlt : pick(RANDOM_ALTS[mood] ?? 1)
+}
+
+// What to fall back to once a reaction has played.
+function settled(): Mood {
+  if (!isBusy) return 'idle'
+  if (agentsRunning > 0) return 'agents'
+  return toolsRunning > 0 ? 'tool' : 'think'
+}
+
+async function setMood($: EngineInterface, mood: Mood, tool?: ToolKind, alt?: number) {
+  revert?.cancel()
+  revert = undefined
+  await update($, buddy, b => ({
+    ...b,
+    mood,
+    tool: tool ?? b.tool,
+    alt: alt ?? (b.mood === mood && mood !== 'tool' ? b.alt : altFor(mood)),
+  }))
+}
+
+// Show a reaction for a moment, then settle back to what fits.
+async function flash($: EngineInterface, mood: Mood, ms: number, alt?: number) {
+  await setMood($, mood, undefined, alt)
+  revert = $.clock.after(ms, () => {
+    void update($, buddy, b => {
+      if (b.mood !== mood) return b
+      const next = settled()
+      return { ...b, mood: next, alt: altFor(next) }
+    })
+  })
+}
+
+async function touch($: EngineInterface) {
+  lastActive = await $.clock.now()
+}
+
+// Every 30 seconds: doze off after a long quiet spell, and while idle,
+// switch to a different idle animation so it doesn't get stale.
+async function tick($: EngineInterface) {
+  const now = await $.clock.now()
+  const current = await read($, buddy)
+  const isQuiet = !isBusy && now - lastActive > SLEEP_AFTER_MS
+  // Only write when something changes: every write redraws the panel and
+  // restarts its animation.
+  if (isQuiet && (current.mood === 'idle' || current.mood === 'done')) {
+    await update($, buddy, (b): Buddy => ({ ...b, mood: 'sleep', alt: pick(ALTS.sleep ?? 1) }))
+  } else if (current.mood === 'idle') {
+    await update($, buddy, b => ({ ...b, alt: pick(ALTS.idle ?? 1, b.alt) }))
+  }
+}
+
+// The oxygen gauge is the share of the context window still free.
+async function readOxygen($: EngineInterface) {
+  const usage = await $.session.usage()
+  const percent = usage.context.percent
+  if (typeof percent === 'number') {
+    await update($, buddy, b => ({ ...b, o2: Math.max(0, 1 - percent / 100) }))
+  }
+}
+
+export const register: Register = (on, options) => {
+  const name = String(options.name ?? '').trim() || DEFAULT_NAME
+  const alien = String(options.alienName ?? '').trim().slice(0, ALIEN_NAME_MAX) || DEFAULT_ALIEN
+
+  on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'astronaut', description: `Show ${name}, your astronaut` })
+    void $.ui.open({ id: PANE, title: name })
+    isBusy = false
+    toolsRunning = 0
+    agentsRunning = 0
+    await touch($)
+    await readOxygen($).catch(() => undefined)
+    await flash($, 'hello', HELLO_MS)
+    ticker?.cancel()
+    ticker = $.clock.every(30_000, () => {
+      void tick($)
+    })
+
+    return next(e)
+  })
+
+  on('command.run', { command: 'astronaut' }, async $ => {
+    await $.ui.open({ id: PANE, title: name })
+
+    return { text: `${name} is here.` }
+  })
+
+  // A new prompt wakes a sleeping astronaut with a stretch first.
+  on('prompt.submit', async ($, e, next) => {
+    await touch($)
+    const current = await read($, buddy)
+    if (current.mood === 'sleep') {
+      wakeUntil = lastActive + WAKE_MS
+      await flash($, 'wake', WAKE_MS)
+    } else {
+      await setMood($, 'think')
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      isBusy = true
+      toolsRunning = 0
+      agentsRunning = 0
+      thinkAlt = pick(RANDOM_ALTS.think ?? 1)
+      await touch($)
+      // Let the wake-up stretch finish; it settles into thinking by itself.
+      if (lastActive >= wakeUntil) await setMood($, 'think')
+    }
+
+    return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const tool = String(e.tool)
+    await touch($)
+    // While helper drones (subagents) are out, their own tool calls don't
+    // change the animation.
+    const isInsideAgent = e.agentId !== undefined && agentsRunning > 0
+    const isAgent = tool === 'Agent' || tool === 'Task'
+    let longTimer: { cancel: () => void } | undefined
+    if (isAgent) {
+      agentsRunning += 1
+      await setMood($, 'agents')
+    } else if (!isInsideAgent) {
+      toolsRunning += 1
+      if (tool === 'AskUserQuestion') {
+        await setMood($, 'ask')
+      } else {
+        const kind = kindOf(tool, e)
+        await setMood($, 'tool', kind)
+        // Still going after a while: switch to checking the watch.
+        longTimer = $.clock.after(LONG_TOOL_MS, () => {
+          void update($, buddy, (b): Buddy => (b.mood === 'tool' && b.tool === kind ? { ...b, tool: 'long' } : b))
+        })
+      }
+    }
+
+    const ran = await next(e)
+    longTimer?.cancel()
+
+    if (isAgent) {
+      agentsRunning = Math.max(0, agentsRunning - 1)
+    } else if (!isInsideAgent) {
+      toolsRunning = Math.max(0, toolsRunning - 1)
+    }
+    await touch($)
+    if (isInsideAgent) return ran
+    const hasFailed = ran.deny === undefined && ran.isError === true
+    if (hasFailed) {
+      await flash($, 'err', ERR_MS)
+    } else if (isBusy && (isAgent ? agentsRunning === 0 : toolsRunning === 0)) {
+      await setMood($, settled())
+    }
+
+    return ran
+  }).catch(($, e, next) => next(e))
+
+  // A call that has to be put to the person: wave for attention until it
+  // runs. A question to the person already has its own animation.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (verdict.decision === 'ask' && e.approver === 'person' && e.tool !== 'AskUserQuestion') {
+      await setMood($, 'wait')
+    }
+
+    return verdict
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      isBusy = false
+      toolsRunning = 0
+      agentsRunning = 0
+      await touch($)
+      await readOxygen($).catch(() => undefined)
+      if (e.isAborted) {
+        await flash($, 'abort', ABORT_MS)
+      } else {
+        // A long turn gets fireworks; a normal one picks a celebration.
+        await flash($, 'done', DONE_MS, e.durationMs >= LONG_TURN_MS ? FIREWORKS : undefined)
+      }
+    }
+
+    return next(e)
+  })
+
+  // Compacting frees up context: swap in a fresh tank while it runs.
+  on('session.compact', async ($, e, next) => {
+    await setMood($, 'compact')
+    const result = await next(e)
+    await readOxygen($).catch(() => undefined)
+    await setMood($, settled())
+
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const state = await read($, buddy)
+
+    if (e.surface === 'terminal') {
+      const { Text } = $.ui.resolve(e)
+
+      return <Text>{describe(state, name, alien)}</Text>
+    }
+
+    const { Svg } = $.ui.resolve(e)
+
+    return <Svg source={svgFor(state, name, alien)} alt={describe(state, name, alien)} isInteractive />
+  })
+}
