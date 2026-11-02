@@ -490,7 +490,7 @@ function bandText(b: Buddy, name: string, alien: string): string {
   const color = left > 0.5 ? '#5DCAA5' : left > LOW_O2 ? '#EF9F27' : '#E24B4A'
   const words = left < LOW_O2 ? '#F09595' : '#8FA3BF'
   return `<text x="${BAND_TEXT_X}" y="41" ${FONT} font-size="15" fill="#C9D3E3">${action}</text>
-<g transform="translate(${BAND_TEXT_X},51)"><rect width="64" height="6" rx="1" fill="#1A2333" stroke="#2C3A4F" stroke-width=".8"/><rect width="${(64 * left).toFixed(1)}" height="6" rx="1" fill="${color}"/><text x="74" y="6.5" ${FONT} font-size="12" fill="${words}">Oxygen ${Math.round(left * 100)}%</text></g>`
+<g transform="translate(${BAND_TEXT_X},51)"><rect width="48" height="6" rx="1" fill="#1A2333" stroke="#2C3A4F" stroke-width=".8"/><rect width="${(48 * left).toFixed(1)}" height="6" rx="1" fill="${color}"/><text x="56" y="6.5" ${FONT} font-size="12" fill="${words}">Oxygen ${Math.round(left * 100)}%</text></g>`
 }
 
 export function bandFor(b: Buddy, name: string, alien: string): string {

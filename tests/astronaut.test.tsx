@@ -258,8 +258,11 @@ test('the banner above the prompt shows the astronaut and what it is doing', asy
   world(on, 38)
   await begin($)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const box = await ui.find({ type: 'Box' })
   const svg = await ui.find({ type: 'Svg' })
   await ui.unmount()
+  // A full-width box around it, so the drawing has the band's width to fill.
+  expect(box?.props.width).toBe('100%')
   expect(svg?.props.height).toBe(88)
   const source = String(svg?.props.source ?? '')
   expect(source).toContain('class="st-think')

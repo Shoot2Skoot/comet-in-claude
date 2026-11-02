@@ -306,9 +306,15 @@ export const register: Register = (on, options) => {
       return <Text dimColor>{describe(state, name, alien)}</Text>
     }
     if (e.surface !== 'desktop') return next(e)
-    const { Svg } = $.ui.resolve(e)
+    const { Box, Svg } = $.ui.resolve(e)
 
-    return <Svg source={bandFor(state, name, alien)} alt={describe(state, name, alien)} height={BAND_HEIGHT} isInteractive />
+    // The box takes the band's whole width, so the drawing inside has a width
+    // to fill instead of falling back to a narrow default.
+    return (
+      <Box flexGrow={1} width="100%">
+        <Svg source={bandFor(state, name, alien)} alt={describe(state, name, alien)} height={BAND_HEIGHT} isInteractive />
+      </Box>
+    )
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
