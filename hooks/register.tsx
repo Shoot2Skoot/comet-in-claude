@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-import type { Buddy, Mood, ToolKind } from '../types'
+import type { Buddy, MissionTask, Mood, Ship, ToolKind } from '../types'
 import { ALTS, BAND_HEIGHT, RANDOM_ALTS, bandFor, describe, svgFor } from './art'
+import { field, fuelFrom, nextTasks, shipFrom } from './readouts'
 
 const PANE = 'astronaut'
 const DEFAULT_NAME = 'Comet'
@@ -53,12 +54,6 @@ const IMAGE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|tiff?)$/i
 const SENDING = /(send|reply|forward|post|draft)/i
 const MESSAGING = /(mail|slack|teams|imessage|message|sms)/i
 
-function field(input: unknown, key: string): string {
-  if (typeof input !== 'object' || input === null) return ''
-  const value = (input as Record<string, unknown>)[key]
-  return typeof value === 'string' ? value : ''
-}
-
 // Which animation a tool gets.
 function kindOf(tool: string, input: unknown): ToolKind {
   if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool)) return 'laptop'
@@ -98,6 +93,18 @@ function altFor(mood: Mood): number {
   return mood === 'think' ? thinkAlt : pick(RANDOM_ALTS[mood] ?? 1)
 }
 
+// A fresh pick of the status line, made whenever the state changes.
+function roll(): number {
+  return Math.floor(Math.random() * 1_000_000)
+}
+
+// The astronaut in a new state, with a new line when anything shown changed
+// and the same line when nothing did, so the words never flicker mid-step.
+function moved(b: Buddy, mood: Mood, tool: ToolKind, alt: number | undefined): Buddy {
+  const isSame = b.mood === mood && b.tool === tool && b.alt === alt
+  return { ...b, mood, tool, alt, say: isSame ? b.say : roll() }
+}
+
 // What to fall back to once a reaction has played.
 function settled(): Mood {
   if (!isBusy) return 'idle'
@@ -108,12 +115,9 @@ function settled(): Mood {
 async function setMood($: EngineInterface, mood: Mood, tool?: ToolKind, alt?: number) {
   revert?.cancel()
   revert = undefined
-  await update($, buddy, b => ({
-    ...b,
-    mood,
-    tool: tool ?? b.tool,
-    alt: alt ?? (b.mood === mood && mood !== 'tool' ? b.alt : altFor(mood)),
-  }))
+  await update($, buddy, b =>
+    moved(b, mood, tool ?? b.tool, alt ?? (b.mood === mood && mood !== 'tool' ? b.alt : altFor(mood))),
+  )
 }
 
 // Show a reaction for a moment, then settle back to what fits.
@@ -123,7 +127,7 @@ async function flash($: EngineInterface, mood: Mood, ms: number, alt?: number) {
     void update($, buddy, b => {
       if (b.mood !== mood) return b
       const next = settled()
-      return { ...b, mood: next, alt: altFor(next) }
+      return moved(b, next, b.tool, altFor(next))
     })
   })
 }
@@ -140,21 +144,62 @@ async function tick($: EngineInterface) {
   const isQuiet = !isBusy && now - lastActive > SLEEP_AFTER_MS
   // Only write when something changes: every write redraws the panel and
   // restarts its animation.
+  if (!isBusy) await readShip($)
   if (isQuiet && (current.mood === 'idle' || current.mood === 'done')) {
-    await update($, buddy, (b): Buddy => ({ ...b, mood: 'sleep', alt: pick(ALTS.sleep ?? 1) }))
+    await update($, buddy, b => moved(b, 'sleep', b.tool, pick(ALTS.sleep ?? 1)))
   } else if (current.mood === 'idle') {
-    await update($, buddy, b => ({ ...b, alt: pick(ALTS.idle ?? 1, b.alt) }))
+    await update($, buddy, b => moved(b, 'idle', b.tool, pick(ALTS.idle ?? 1, b.alt)))
   }
 }
 
-// The oxygen gauge is the share of the context window still free.
-async function readOxygen($: EngineInterface) {
-  const usage = await $.session.usage()
-  const percent = usage.context.percent
-  if (typeof percent === 'number') {
-    await update($, buddy, b => ({ ...b, o2: Math.max(0, 1 - percent / 100) }))
-  }
+// The gauges. Onboard memory (o2) is the share of the context window still
+// free; fuel is the weekly usage limit still unused. Each write redraws the
+// banner and restarts its animation, so they're written only when a whole
+// point moves.
+const point = (share: number | null | undefined) => (share === null || share === undefined ? null : Math.round(share * 100))
+
+async function setGauges($: EngineInterface, percent: number | undefined, limits: readonly SessionRateLimit[]) {
+  const fuel = fuelFrom(limits)
+  await update($, buddy, b => {
+    const o2 = typeof percent === 'number' ? Math.max(0, 1 - percent / 100) : b.o2
+    const isSame =
+      point(o2) === point(b.o2) && point(fuel?.left) === point(b.fuel?.left) && fuel?.resetsAt === b.fuel?.resetsAt
+    return isSame ? b : { ...b, o2, fuel }
+  })
 }
+
+async function readGauges($: EngineInterface) {
+  const usage = await $.session.usage()
+  await setGauges($, usage.context.percent, usage.rateLimits)
+}
+
+// Keeps the mission readout in step with Claude's task list after a task
+// tool runs, subagents' updates included.
+async function trackTasks($: EngineInterface, tool: string, e: unknown, result: unknown) {
+  const current = await read($, buddy)
+  const tasks = nextTasks(current.tasks ?? [], tool, e, result)
+  if (tasks) await setTasks($, tasks)
+}
+
+const TASK_TOOLS = /^(TaskCreate|TaskUpdate|TaskList|TodoWrite)$/
+
+async function setTasks($: EngineInterface, tasks: MissionTask[]) {
+  await update($, buddy, b => (JSON.stringify(b.tasks ?? []) === JSON.stringify(tasks) ? b : { ...b, tasks }))
+}
+
+async function readShip($: EngineInterface) {
+  let ship: Ship | null = null
+  try {
+    const { exitCode, stdout } = await $.process.run(['git', 'status', '--porcelain=v1', '--branch'], { timeoutMs: 5000 })
+    if (exitCode === 0) ship = shipFrom(stdout)
+  } catch {
+    ship = null
+  }
+  await update($, buddy, b => (JSON.stringify(b.ship ?? null) === JSON.stringify(ship) ? b : { ...b, ship }))
+}
+
+// Tools that can change files, after which the ship status is read again.
+const CHANGES_FILES = new Set<ToolKind>(['laptop', 'weld', 'flag', 'lab', 'crate', 'build', 'trash'])
 
 export const register: Register = (on, options) => {
   const name = String(options.name ?? '').trim() || DEFAULT_NAME
@@ -168,7 +213,8 @@ export const register: Register = (on, options) => {
     toolsRunning = 0
     agentsRunning = 0
     await touch($)
-    await readOxygen($).catch(() => undefined)
+    await readGauges($).catch(() => undefined)
+    await readShip($)
     await flash($, 'hello', HELLO_MS)
     ticker?.cancel()
     ticker = $.clock.every(30_000, () => {
@@ -188,6 +234,9 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     await touch($)
     const current = await read($, buddy)
+    // A finished mission clears when the next one starts.
+    const tasks = current.tasks ?? []
+    if (tasks.length > 0 && tasks.every(t => t.status === 'completed')) await setTasks($, [])
     if (current.mood === 'sleep') {
       wakeUntil = lastActive + WAKE_MS
       await flash($, 'wake', WAKE_MS)
@@ -232,13 +281,16 @@ export const register: Register = (on, options) => {
         await setMood($, 'tool', kind)
         // Still going after a while: switch to checking the watch.
         longTimer = $.clock.after(LONG_TOOL_MS, () => {
-          void update($, buddy, (b): Buddy => (b.mood === 'tool' && b.tool === kind ? { ...b, tool: 'long' } : b))
+          void update($, buddy, b => (b.mood === 'tool' && b.tool === kind ? moved(b, 'tool', 'long', b.alt) : b))
         })
       }
     }
 
     const ran = await next(e)
     longTimer?.cancel()
+    if (TASK_TOOLS.test(tool) && ran.deny === undefined && ran.isError !== true) {
+      await trackTasks($, tool, e, ran.result)
+    }
 
     if (isAgent) {
       agentsRunning = Math.max(0, agentsRunning - 1)
@@ -247,6 +299,7 @@ export const register: Register = (on, options) => {
     }
     await touch($)
     if (isInsideAgent) return ran
+    if (!isAgent && CHANGES_FILES.has(kindOf(tool, e))) await readShip($)
     const hasFailed = ran.deny === undefined && ran.isError === true
     if (hasFailed) {
       await flash($, 'err', ERR_MS)
@@ -255,6 +308,14 @@ export const register: Register = (on, options) => {
     }
 
     return ran
+  }).catch(($, e, next) => next(e))
+
+  // Live gauges: the engine measures after each response.
+  on('session.measure', async ($, e, next) => {
+    const result = await next(e)
+    await setGauges($, e.context.percent, e.rateLimits)
+
+    return result
   }).catch(($, e, next) => next(e))
 
   // A permission prompt actually put to you: wave for attention until the
@@ -273,7 +334,8 @@ export const register: Register = (on, options) => {
       toolsRunning = 0
       agentsRunning = 0
       await touch($)
-      await readOxygen($).catch(() => undefined)
+      await readGauges($).catch(() => undefined)
+      await readShip($)
       if (e.isAborted) {
         await flash($, 'abort', ABORT_MS)
       } else {
@@ -285,11 +347,11 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Compacting frees up context: swap in a fresh tank while it runs.
+  // Compacting frees up onboard memory: swap in a fresh tank while it runs.
   on('session.compact', async ($, e, next) => {
     await setMood($, 'compact')
     const result = await next(e)
-    await readOxygen($).catch(() => undefined)
+    await readGauges($).catch(() => undefined)
     await setMood($, settled())
 
     return result

@@ -1,6 +1,6 @@
 # Astronaut buddy
 
-A little astronaut who floats in a strip of space just above your prompt box and acts out what Claude is doing, with a line beside it saying what that is and how much oxygen (free context) is left. The default name is Comet. The little alien Comet sometimes pats is called Blip. You can rename either one when you install the mod, or later in `/config` (the alien's name can be up to 16 characters).
+A little astronaut who floats in a strip of space just above your prompt box and acts out what Claude is doing. Beside it are a line saying what that is and a few live readouts (below). The default name is Comet. The little alien Comet sometimes pats is called Blip. You can rename either one when you install the mod, or later in `/config` (the alien's name can be up to 16 characters).
 
 ## Install
 
@@ -51,12 +51,23 @@ Every state has a symbol bubble in the same spot by the helmet, so you can tell 
 | Claude sends out subagents | Helper drones orbit | purple network |
 | Claude asks you a question | One of two: holds up a "?" sign, or raises a hand | blue ? |
 | Claude needs your permission | Waves both arms, a little frantic | yellow ! |
-| The conversation is compacting | Plugs in a fresh oxygen tank | teal tank |
+| The conversation is compacting | Plugs in a fresh tank to clear onboard memory | teal tank |
 | A turn finishes | One of three: somersault, fist pump with confetti, or a little dance. Turns over 2 minutes get fireworks | green check |
 | You stop a turn | Shrugs | grey ~ |
 | A tool call fails | One of four: backpack smokes, a wrench floats away, sees stars, or a facepalm | red X |
 | Nothing for 5 minutes | Dozes off, either floating or zipped into a sleeping bag with a nightcap | none |
 
-The gauge on the chest is oxygen: the share of the context window still free. It drains as the conversation grows (green, then amber, then red) and refills after a compaction. Below 20% the antenna light turns red and blinks, and the astronaut starts to sweat.
+The words change: every state has its own pool of space-themed lines (about 300 in all, 60 of them for thinking), and a new one is picked each time the state changes.
 
-Click `[-]` beside the strip to collapse it. Type `/astronaut` to open a bigger version in a side panel. In a terminal, where there's no picture, the strip is one line of text instead, like "Comet is welding, oxygen 64%".
+## The readouts
+
+| Readout | What it shows |
+| --- | --- |
+| Memory | Onboard memory: the share of the context window still free. It drains as the conversation grows (green, then amber, then red) and refills after a compaction. |
+| Fuel | Your weekly usage limit still unused, and when it refuels. Shown only on a Claude subscription, where the limit is reported. |
+| Mission | When Claude keeps a task list: how many tasks are done, and the one under way. It clears at your next prompt once every task is done. |
+| Ship | The git branch the session's folder is on, and how many files have uncommitted changes. Shown only inside a git repository. |
+
+The gauge on the astronaut's chest is onboard memory too. Below 20% free the antenna light turns red and blinks, and the astronaut starts to sweat.
+
+Click `[-]` beside the strip to collapse it. Type `/astronaut` to open a bigger version in a side panel. In a terminal, where there's no picture, the strip is one line of text instead, like "Comet is welding · memory 64% free · fuel 58% · mission 1/4 · main, 3 uncommitted".

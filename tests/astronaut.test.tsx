@@ -2,6 +2,10 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { THINK_LINES, lineFor, linesFor } from '../hooks/lines'
+import { fuelFrom, shipFrom } from '../hooks/readouts'
+import type { Mood, ToolKind } from '../types'
+
 const PANE = {
   plugin: 'astronaut-buddy',
   component: 'Pane',
@@ -31,19 +35,21 @@ const BAND = {
 
 // The engine beneath the mod: each hook here answers as a session would.
 // `percent` is how much of the context window is in use.
-function world(on: On, percent = 30) {
+// `limits` are the account's usage windows, as the engine reports them.
+function world(on: On, percent = 30, limits: unknown[] = []) {
   const clock = mock.clock(on)
   on('command.register', () => ({ value: { command: 'astronaut' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { window: 200000, tokens: percent * 2000, percent }, rateLimits: [] },
+    value: { startedAt: 0, context: { window: 200000, tokens: percent * 2000, percent }, rateLimits: limits },
   }) as never)
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('prompt.submit', (_, e) => ({ text: e.text }) as never)
   // No settings hook beneath: a permission prompt passes with no decision.
   on('classic.PermissionRequest', () => ({}))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
 
   return clock
 }
@@ -208,8 +214,7 @@ test('the text-only view uses the default name', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
   await clock.advance(4000)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // Idle floats, or pats the alien one time in seven.
-  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Comet is (floating|patting Blip)/)
+  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Comet .+ · memory 70% free$/)
   await ui.unmount()
 })
 
@@ -218,7 +223,7 @@ test('the name option renames the astronaut', { options: { name: 'Pip' } }, asyn
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
   await clock.advance(4000)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Pip is (floating|patting Blip)/)
+  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Pip .+ · memory 70% free$/)
   await ui.unmount()
 })
 
@@ -237,7 +242,9 @@ test('the alien pal is called Blip unless renamed', async ($, on) => {
   const clock = world(on)
   await patting($, clock, 'terminal')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toContain('Comet is patting Blip')
+  const line = /^Comet (.+?) · memory/.exec((await ui.find({ type: 'Text' }))?.text ?? '')?.[1]
+  expect(linesFor('idle', 'wrist', 4, 'Blip')).toContain(line)
+  expect(line).toContain('Blip')
   await ui.unmount()
   expect(await scene($)).toContain('>Blip</text>')
 })
@@ -250,7 +257,9 @@ test('the alienName option renames the alien, on its tag too', { options: { alie
   // Cut to 16 characters so it fits the tag.
   expect(svg).toContain('>Zorbelina the Ma</text>')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toContain('Comet is patting Zorbelina the Ma')
+  const line = /^Comet (.+?) · memory/.exec((await ui.find({ type: 'Text' }))?.text ?? '')?.[1] ?? ''
+  expect(line).toContain('Zorbelina the Ma')
+  expect(line).not.toContain('Zorbelina the Magnificent')
   await ui.unmount()
 })
 
@@ -266,10 +275,11 @@ test('the banner above the prompt shows the astronaut and what it is doing', asy
   expect(svg?.props.height).toBe(88)
   const source = String(svg?.props.source ?? '')
   expect(source).toContain('class="st-think')
-  expect(source).toContain('</tspan> is thinking</text>')
-  expect(source).toContain('Oxygen 62%')
+  expect(THINK_LINES as readonly string[]).toContain(/<\/tspan> ([^<]+)<\/text>/.exec(source)?.[1])
+  expect(source).toContain('62% free')
   const text = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await text.find({ type: 'Text' }))?.text).toContain('Comet is thinking, oxygen 62%')
+  const said = /^Comet (.+) · memory 62% free$/.exec((await text.find({ type: 'Text' }))?.text ?? '')?.[1]
+  expect(THINK_LINES as readonly string[]).toContain(said)
   await text.unmount()
 })
 
@@ -300,6 +310,150 @@ test('a question to you is not a permission prompt', async ($, on) => {
   await begin($)
   await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: {} } as never)
   expect(await scene($)).not.toContain('class="st-wait')
+})
+
+test('every state has its own pool of lines, written plainly', () => {
+  const moods: Mood[] = ['hello', 'wake', 'think', 'agents', 'ask', 'wait', 'compact', 'done', 'abort', 'err', 'sleep']
+  const tools: ToolKind[] = ['wrist', 'laptop', 'weld', 'mine', 'web', 'radio', 'list', 'flag', 'lab', 'crate', 'build', 'trash', 'map', 'photo', 'rover', 'log', 'mail', 'long']
+  const pools = [
+    ...moods.map(m => linesFor(m, 'wrist', 0, 'Blip')),
+    ...tools.map(t => linesFor('tool', t, 0, 'Blip')),
+    ...[0, 1, 2, 3, 4, 5, 6].map(alt => linesFor('idle', 'wrist', alt, 'Blip')),
+  ]
+  for (const pool of pools) {
+    expect(pool.length).toBeGreaterThanOrEqual(4)
+    expect(new Set(pool).size).toBe(pool.length)
+    for (const line of pool) expect(line).not.toMatch(/[\u2018\u2019\u201C\u201D\u2014]/)
+  }
+  expect(THINK_LINES.length).toBeGreaterThanOrEqual(50)
+  // The alien pal's lines all name it.
+  for (const line of linesFor('idle', 'wrist', 4, 'Zib')) expect(line).toContain('Zib')
+  // The roll picks the line, so the same roll shows the same words.
+  expect(lineFor('tool', 'weld', 0, 3, 'Blip')).toBe(lineFor('tool', 'weld', 0, 3, 'Blip'))
+})
+
+test('the words change from one step to the next', async ($, on) => {
+  world(on)
+  on('tool.call', () => ({ result: {} }) as never)
+  await begin($)
+  const seen = new Set<string>()
+  for (let i = 0; i < 12; i++) {
+    await $.tool.call({ tool: 'Bash', command: 'make' } as never)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    seen.add(String((await ui.find({ type: 'Text' }))?.text))
+    await ui.unmount()
+  }
+  // Back to thinking after each command, with a new line most times.
+  expect(seen.size).toBeGreaterThan(3)
+})
+
+// What the terminal's one-line readout says right now.
+async function readout($: Engine): Promise<string> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const text = String((await ui.find({ type: 'Text' }))?.text ?? '')
+  await ui.unmount()
+
+  return text
+}
+
+async function banner($: Engine): Promise<string> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svg = await ui.find({ type: 'Svg' })
+  await ui.unmount()
+
+  return String(svg?.props.source ?? '')
+}
+
+test('fuel is the weekly limit still unused, with when it refuels', async ($, on) => {
+  world(on, 30, [
+    { kind: 'five_hour', percentUsed: 80, resetsAt: '2026-11-02T03:00:00Z' },
+    { kind: 'seven_day', percentUsed: 42, resetsAt: '2026-11-05T21:00:00Z' },
+  ])
+  await begin($)
+  expect(await readout($)).toContain('fuel 58%')
+  const source = await banner($)
+  expect(source).toContain('>Fuel</text>')
+  expect(source).toContain('58%<tspan')
+  expect(source).toContain('refuels ')
+  // The five-hour window isn't shown.
+  expect(await readout($)).not.toContain('20%')
+  expect(fuelFrom([{ kind: 'five_hour', percentUsed: 80 }])).toBeNull()
+})
+
+test('without a weekly limit there is no fuel gauge', async ($, on) => {
+  world(on)
+  await begin($)
+  expect(await readout($)).not.toContain('fuel')
+  expect(await banner($)).not.toContain('>Fuel</text>')
+})
+
+test('onboard memory follows the context window as it fills', async ($, on) => {
+  world(on, 30)
+  await begin($)
+  expect(await readout($)).toContain('memory 70% free')
+  await $.session.measure({ context: { window: 200000, tokens: 100000, percent: 50 }, rateLimits: [], changed: ['context'] } as never)
+  expect(await readout($)).toContain('memory 50% free')
+})
+
+test('the mission shows the task under way and how many are done', async ($, on) => {
+  world(on)
+  let id = 0
+  on('tool.call', (_, e) => {
+    const call = e as unknown as Record<string, string>
+    if (call.tool === 'TaskCreate') return { result: { task: { id: String(++id), subject: call.subject } } } as never
+
+    return { result: { success: true, taskId: call.taskId, updatedFields: ['status'] } } as never
+  })
+  await begin($)
+  for (const subject of ['Read the routine screen', 'Add the streak counter', 'Run the tests']) {
+    await $.tool.call({ tool: 'TaskCreate', subject, description: subject } as never)
+  }
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'in_progress', activeForm: 'Adding the streak counter' } as never)
+  expect(await banner($)).toContain('1/3: Adding the streak counter')
+  expect(await readout($)).toContain('mission 1/3')
+  // A deleted task leaves the count.
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '3', status: 'deleted' } as never)
+  expect(await readout($)).toContain('mission 1/2')
+  // Done with all of it: complete, then cleared when the next prompt comes.
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'completed' } as never)
+  expect(await banner($)).toContain('2/2: complete')
+  await $.turn.complete({ turnId: 't1', answer: 'done', isAborted: false, durationMs: 1000 } as never)
+  await $.prompt.submit({ text: 'next thing' } as never)
+  expect(await readout($)).not.toContain('mission')
+})
+
+test('a todo list counts as the mission too', async ($, on) => {
+  world(on)
+  on('tool.call', () => ({ result: {} }) as never)
+  await begin($)
+  await $.tool.call({
+    tool: 'TodoWrite',
+    todos: [
+      { content: 'Plan', status: 'completed', activeForm: 'Planning' },
+      { content: 'Build', status: 'in_progress', activeForm: 'Building' },
+      { content: 'Ship', status: 'pending', activeForm: 'Shipping' },
+    ],
+  } as never)
+  expect(await banner($)).toContain('1/3: Building')
+})
+
+test('ship status reads the branch and counts uncommitted files from git status', () => {
+  expect(shipFrom('## feature/streaks...origin/feature/streaks [ahead 1]\n M src/routine.ts\n?? src/streak.ts\n')).toEqual({
+    branch: 'feature/streaks',
+    changed: 2,
+  })
+  expect(shipFrom('## main\n')).toEqual({ branch: 'main', changed: 0 })
+  expect(shipFrom('## No commits yet on main\n?? README.md\n')).toEqual({ branch: 'main', changed: 1 })
+  expect(shipFrom('## HEAD (no branch)\n')).toEqual({ branch: 'detached', changed: 0 })
+  expect(shipFrom('')).toBeNull()
+})
+
+test('without git to ask, there is no ship status and nothing breaks', async ($, on) => {
+  world(on)
+  await begin($)
+  expect(await readout($)).not.toContain('committed')
+  expect(await banner($)).not.toContain('>Ship </tspan>')
 })
 
 test('idle switches to a different idle animation every 30 seconds', async ($, on) => {

@@ -4,7 +4,8 @@
 // script. Coordinates inside the rig are centered on the astronaut's
 // shoulders: the helmet sits around (0,-26), the shoulders pivot at (+-18,7)
 // and an arm reaches 26 units to the glove.
-import type { Buddy, Mood, ToolKind } from '../types'
+import type { Buddy, MissionTask, Mood } from '../types'
+import { lineFor } from './lines'
 
 // How many versions each mood has. Moods not listed have one.
 export const ALTS: Partial<Record<Mood, number>> = { idle: 7, think: 5, done: 4, err: 4, sleep: 2, ask: 2 }
@@ -14,52 +15,45 @@ export const RANDOM_ALTS: Partial<Record<Mood, number>> = { ...ALTS, done: 3 }
 // The idle version where the astronaut pats the alien pal.
 export const ALIEN_ALT = 4
 
-const LABELS: Record<Exclude<Mood, 'tool'>, string> = {
-  hello: 'is flying in',
-  wake: 'is waking up',
-  idle: 'is floating',
-  think: 'is thinking',
-  agents: 'sent out helper drones',
-  ask: 'has a question for you',
-  wait: 'needs your OK',
-  compact: 'is swapping in a fresh oxygen tank',
-  done: 'is done',
-  abort: 'shrugs, you stopped that one',
-  err: 'saw a command fail',
-  sleep: 'is asleep',
+// The version a state shows, kept in range.
+function altOf(b: Buddy): number {
+  return Math.max(0, Math.min((ALTS[b.mood] ?? 1) - 1, b.alt ?? 0))
 }
 
-const TOOL_LABELS: Record<ToolKind, string> = {
-  wrist: 'is on the wrist computer',
-  laptop: 'is typing on the laptop',
-  weld: 'is welding',
-  mine: 'is mining',
-  web: 'is scanning the web',
-  radio: 'is radioing mission control',
-  list: 'is checking off the task list',
-  flag: 'is planting a flag',
-  lab: 'is running tests',
-  crate: 'is unpacking supplies',
-  long: 'is waiting on a long-running tool',
-  map: 'is plotting a course',
-  photo: 'is taking a picture',
-  rover: 'is driving the rover',
-  log: "is writing in the captain's log",
-  mail: 'is sending a message rocket',
-  trash: 'is tossing junk out the airlock',
-  build: 'is building a rocket',
-}
-
-// What the astronaut is doing, as words: "is welding".
+// What the astronaut is doing, as words: "is welding a hull panel". The line
+// comes from that state's pool (lines.ts), picked by the roll made when the
+// state began.
 function doingOf(b: Buddy, alien: string): string {
-  const isPatting = b.mood === 'idle' && b.alt === ALIEN_ALT
-  return b.mood === 'tool' ? TOOL_LABELS[b.tool] : isPatting ? `is patting ${alien}` : LABELS[b.mood]
+  return lineFor(b.mood, b.tool, altOf(b), b.say ?? 0, alien)
 }
 
+// The mission readout: how many tasks are done, and the one under way (or
+// the next one up). Null while there is no task list.
+export function missionOf(tasks: readonly MissionTask[] | undefined): { done: number; total: number; current: string | null } | null {
+  if (!tasks || tasks.length === 0) return null
+  const done = tasks.filter(t => t.status === 'completed').length
+  const active = tasks.find(t => t.status === 'in_progress')
+  const next = tasks.find(t => t.status === 'pending')
+  const current = active ? active.activeForm || active.subject : next ? next.subject : null
+  return { done, total: tasks.length, current }
+}
+
+const percent = (share: number) => Math.round(Math.max(0, Math.min(1, share)) * 100)
+
+// The readouts as one line of text, for the terminal and for screen readers:
+// "Comet is welding · memory 62% free · fuel 58% · mission 3/7 · main, 2 uncommitted".
 export function describe(b: Buddy, name: string, alien: string): string {
-  const doing = doingOf(b, alien)
-  const air = b.o2 === null ? '' : `, oxygen ${Math.round(b.o2 * 100)}%`
-  return `${name} ${doing}${air}`
+  const parts = [`${name} ${doingOf(b, alien)}`]
+  if (b.o2 !== null) parts.push(`memory ${percent(b.o2)}% free`)
+  if (b.fuel) parts.push(`fuel ${percent(b.fuel.left)}%`)
+  const mission = missionOf(b.tasks)
+  if (mission) parts.push(`mission ${mission.done}/${mission.total}`)
+  if (b.ship) parts.push(`${b.ship.branch}, ${uncommitted(b.ship.changed)}`)
+  return parts.join(' · ')
+}
+
+function uncommitted(changed: number): string {
+  return changed === 0 ? 'all committed' : `${changed} uncommitted`
 }
 
 // Below this much free context the antenna light turns red and blinks.
@@ -422,7 +416,7 @@ const BUBBLES = `<g transform="translate(38,-64)">
 // The root's classes pick the state: st-<mood>, v-<tool>, a-<version>, and
 // low when the oxygen is nearly out.
 function rootClass(b: Buddy): string {
-  const alt = Math.max(0, Math.min((ALTS[b.mood] ?? 1) - 1, b.alt ?? 0))
+  const alt = altOf(b)
   const low = b.o2 !== null && b.o2 < LOW_O2 ? ' low' : ''
   return `st-${b.mood} v-${b.tool} a-${alt}${low}`
 }
@@ -471,26 +465,89 @@ const BAND_SKY = (() => {
     const r = (0.6 + next() * 0.9).toFixed(1)
     const twinkle = i % 3 === 0 ? ` class="tw" style="animation-delay:${(next() * 3).toFixed(1)}s"` : ''
     // Keep the sky behind the words clear, so no star reads as punctuation.
-    if (x > BAND_TEXT_X - 8 && x < BAND_TEXT_X + 420 && y > 18 && y < 68) continue
+    if (x > BAND_TEXT_X - 26 && x < BAND_TEXT_X + 640 && y > 10 && y < 80) continue
     stars += `<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${r}"${twinkle}/>`
   }
   const planets = ([
-    [640, 112, 46], [1500, 22, 7], [2050, 118, 52],
+    [880, 112, 46], [1500, 22, 7], [2050, 118, 52],
   ] as const).map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#2A3550"/>` +
     (r > 20 ? `<circle cx="${x - r * 0.35}" cy="${y - r * 0.55}" r="${(r * 0.14).toFixed(1)}" fill="#334063"/><circle cx="${x + r * 0.3}" cy="${y - r * 0.75}" r="${(r * 0.09).toFixed(1)}" fill="#334063"/>` : '')).join('')
   return `<rect width="${BAND_WIDTH}" height="${BAND_HEIGHT}" fill="#141B2D"/>${planets}<g fill="#E6F1FB" fill-opacity=".85">${stars}</g>`
 })()
 
-function bandText(b: Buddy, name: string, alien: string): string {
-  const action = `<tspan font-weight="600" fill="#E6F1FB">${escape(name)}</tspan> ${escape(doingOf(b, alien))}`
-  if (b.o2 === null) {
-    return `<text x="${BAND_TEXT_X}" y="49" ${FONT} font-size="15" fill="#C9D3E3">${action}</text>`
+// Up to three rows beside the astronaut: what it's doing; the gauges (onboard
+// memory is the context window still free, fuel the weekly usage limit still
+// unused); then the mission (the task list) and the ship (the git branch).
+// A row with nothing to show is left out and the rest are centered.
+const DIM = '#8FA3BF'
+const VALUE = '#C9D3E3'
+const WARN = '#F09595'
+
+function gaugeColor(left: number): string {
+  return left > 0.5 ? '#5DCAA5' : left > LOW_O2 ? '#EF9F27' : '#E24B4A'
+}
+
+function bar(x: number, y: number, left: number): string {
+  const share = Math.max(0, Math.min(1, left))
+  return `<rect x="${x}" y="${y - 7}" width="36" height="6" rx="1" fill="#1A2333" stroke="#2C3A4F" stroke-width=".8"/><rect x="${x}" y="${y - 7}" width="${(36 * share).toFixed(1)}" height="6" rx="1" fill="${gaugeColor(share)}"/>`
+}
+
+// "Thu 9 PM" in the person's own time, or nothing if the time can't be read.
+function refuelTime(iso: string | undefined): string {
+  if (!iso) return ''
+  try {
+    const at = new Date(iso)
+    if (Number.isNaN(at.getTime())) return ''
+    return at.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).replace(/:00(?=\s?[AP]M)/i, '')
+  } catch {
+    return ''
   }
-  const left = Math.max(0, Math.min(1, b.o2))
-  const color = left > 0.5 ? '#5DCAA5' : left > LOW_O2 ? '#EF9F27' : '#E24B4A'
-  const words = left < LOW_O2 ? '#F09595' : '#8FA3BF'
-  return `<text x="${BAND_TEXT_X}" y="41" ${FONT} font-size="15" fill="#C9D3E3">${action}</text>
-<g transform="translate(${BAND_TEXT_X},51)"><rect width="48" height="6" rx="1" fill="#1A2333" stroke="#2C3A4F" stroke-width=".8"/><rect width="${(48 * left).toFixed(1)}" height="6" rx="1" fill="${color}"/><text x="56" y="6.5" ${FONT} font-size="12" fill="${words}">Oxygen ${Math.round(left * 100)}%</text></g>`
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}\u2026` : text
+}
+
+function gaugeRow(b: Buddy, y: number): string {
+  let out = ''
+  let x = BAND_TEXT_X
+  if (b.o2 !== null) {
+    const isLow = b.o2 < LOW_O2
+    out += `<text x="${x}" y="${y}" ${FONT} font-size="12" fill="${DIM}">Memory</text>${bar(x + 54, y, b.o2)}<text x="${x + 96}" y="${y}" ${FONT} font-size="12" fill="${isLow ? WARN : VALUE}">${percent(b.o2)}% free</text>`
+    x += 172
+  }
+  if (b.fuel) {
+    const isLow = b.fuel.left < LOW_O2
+    const when = refuelTime(b.fuel.resetsAt)
+    const refuel = when ? `<tspan fill="${DIM}"> \u00b7 refuels ${escape(when)}</tspan>` : ''
+    out += `<text x="${x}" y="${y}" ${FONT} font-size="12" fill="${DIM}">Fuel</text>${bar(x + 34, y, b.fuel.left)}<text x="${x + 76}" y="${y}" ${FONT} font-size="12" fill="${isLow ? WARN : VALUE}">${percent(b.fuel.left)}%${refuel}</text>`
+  }
+  return out
+}
+
+function infoRow(b: Buddy, y: number): string {
+  const mission = missionOf(b.tasks)
+  let spans = ''
+  if (mission) {
+    const what = mission.current ? `: ${escape(clip(mission.current, 38))}` : mission.done === mission.total ? ': complete' : ''
+    spans += `<tspan fill="${DIM}">Mission </tspan><tspan fill="${VALUE}">${mission.done}/${mission.total}${what}</tspan>`
+  }
+  if (b.ship) {
+    const gap = spans ? ' dx="22"' : ''
+    spans += `<tspan fill="${DIM}"${gap}>Ship </tspan><tspan fill="${VALUE}">${escape(clip(b.ship.branch, 24))}, ${uncommitted(b.ship.changed)}</tspan>`
+  }
+  return spans ? `<text x="${BAND_TEXT_X}" y="${y}" ${FONT} font-size="12">${spans}</text>` : ''
+}
+
+function bandText(b: Buddy, name: string, alien: string): string {
+  const hasGauges = b.o2 !== null || Boolean(b.fuel)
+  const hasInfo = missionOf(b.tasks) !== null || Boolean(b.ship)
+  const rows = 1 + (hasGauges ? 1 : 0) + (hasInfo ? 1 : 0)
+  const [first, second, third] = rows === 3 ? [28, 50, 71] : rows === 2 ? [38, 59, 0] : [49, 0, 0]
+  const action = `<text x="${BAND_TEXT_X}" y="${first}" ${FONT} font-size="15" fill="${VALUE}"><tspan font-weight="600" fill="#E6F1FB">${escape(name)}</tspan> ${escape(doingOf(b, alien))}</text>`
+  const gauges = hasGauges ? gaugeRow(b, second) : ''
+  const info = hasInfo ? infoRow(b, hasGauges ? third : second) : ''
+  return `${action}\n${gauges}\n${info}`
 }
 
 export function bandFor(b: Buddy, name: string, alien: string): string {

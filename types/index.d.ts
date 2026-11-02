@@ -50,9 +50,39 @@ export type ToolKind =
   | 'mail'
   | 'long'
 
-// o2 is the share of the context window still free, 0 to 1, or null before
-// the first reading. alt picks which version of a mood's animation plays.
-export type Buddy = { mood: Mood; tool: ToolKind; o2: number | null; alt?: number }
+// Fuel: the account's weekly usage limit. left is the share still unused,
+// 0 to 1; resetsAt is when it refills, as an ISO 8601 time.
+export type Fuel = { left: number; resetsAt?: string }
+
+// One task on the list Claude keeps for the work at hand (the mission).
+// activeForm is how it reads while under way ("Running tests").
+export type MissionTask = {
+  id: string
+  subject: string
+  activeForm?: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+// Ship status: the git branch the session's folder is on, and how many files
+// have changes not yet committed.
+export type Ship = { branch: string; changed: number }
+
+// o2 is the share of the context window still free (onboard memory), 0 to 1,
+// or null before the first reading. alt picks which version of a mood's
+// animation plays. say is a roll made when the state began; it picks the line
+// the status shows from that state's pool, so the words change each time but
+// hold steady within one state. fuel is null off a subscription, ship is null
+// outside a git repository, and tasks is empty while there is no task list.
+export type Buddy = {
+  mood: Mood
+  tool: ToolKind
+  o2: number | null
+  alt?: number
+  say?: number
+  fuel?: Fuel | null
+  tasks?: MissionTask[]
+  ship?: Ship | null
+}
 
 declare module 'claude-code' {
   interface PluginState {
