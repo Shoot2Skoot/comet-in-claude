@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Buddy, Mood, ToolKind } from '../types'
-import { ALTS, RANDOM_ALTS, describe, svgFor } from './art'
+import { ALTS, BAND_HEIGHT, RANDOM_ALTS, bandFor, describe, svgFor } from './art'
 
 const PANE = 'astronaut'
 const DEFAULT_NAME = 'Comet'
@@ -161,8 +161,9 @@ export const register: Register = (on, options) => {
   const alien = String(options.alienName ?? '').trim().slice(0, ALIEN_NAME_MAX) || DEFAULT_ALIEN
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'astronaut', description: `Show ${name}, your astronaut` })
-    void $.ui.open({ id: PANE, title: name })
+    // The astronaut lives in the banner above the prompt box; /astronaut
+    // opens the bigger side panel for anyone who wants it.
+    await $.command.register({ name: 'astronaut', description: `Open ${name} in a bigger side panel` })
     isBusy = false
     toolsRunning = 0
     agentsRunning = 0
@@ -256,15 +257,14 @@ export const register: Register = (on, options) => {
     return ran
   }).catch(($, e, next) => next(e))
 
-  // A call that has to be put to the person: wave for attention until it
-  // runs. A question to the person already has its own animation.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.approver === 'person' && e.tool !== 'AskUserQuestion') {
-      await setMood($, 'wait')
-    }
+  // A permission prompt actually put to you: wave for attention until the
+  // call runs. This is raised only when a dialog is about to show, so in auto
+  // mode the asks the classifier settles by itself don't set off the wave.
+  // A question to the person already has its own animation.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.tool_name !== 'AskUserQuestion') await setMood($, 'wait')
 
-    return verdict
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
@@ -293,6 +293,22 @@ export const register: Register = (on, options) => {
     await setMood($, settled())
 
     return result
+  }).catch(($, e, next) => next(e))
+
+  // The banner above the prompt box. A survey that needs the band gets it.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const state = await read($, buddy)
+
+    if (e.surface === 'terminal') {
+      const { Text } = $.ui.resolve(e)
+
+      return <Text dimColor>{describe(state, name, alien)}</Text>
+    }
+    if (e.surface !== 'desktop') return next(e)
+    const { Svg } = $.ui.resolve(e)
+
+    return <Svg source={bandFor(state, name, alien)} alt={describe(state, name, alien)} height={BAND_HEIGHT} isInteractive />
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

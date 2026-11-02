@@ -50,9 +50,14 @@ const TOOL_LABELS: Record<ToolKind, string> = {
   build: 'is building a rocket',
 }
 
-export function describe(b: Buddy, name: string, alien: string): string {
+// What the astronaut is doing, as words: "is welding".
+function doingOf(b: Buddy, alien: string): string {
   const isPatting = b.mood === 'idle' && b.alt === ALIEN_ALT
-  const doing = b.mood === 'tool' ? TOOL_LABELS[b.tool] : isPatting ? `is patting ${alien}` : LABELS[b.mood]
+  return b.mood === 'tool' ? TOOL_LABELS[b.tool] : isPatting ? `is patting ${alien}` : LABELS[b.mood]
+}
+
+export function describe(b: Buddy, name: string, alien: string): string {
+  const doing = doingOf(b, alien)
   const air = b.o2 === null ? '' : `, oxygen ${Math.round(b.o2 * 100)}%`
   return `${name} ${doing}${air}`
 }
@@ -103,7 +108,8 @@ const STYLE = `
 .jet path{transform-box:fill-box;transform-origin:50% 0%}
 .whl,.bg,.hg,.mer,.burst,.orb2,.flash,.snapc{transform-box:fill-box;transform-origin:center}
 .legR{transform-box:fill-box;transform-origin:50% 0%}
-.al{transform-box:fill-box;transform-origin:50% 100%}.heart{transform-box:fill-box;transform-origin:center}
+.al{transform-box:fill-box;transform-origin:50% 100%}
+.band .atag{display:none}.heart{transform-box:fill-box;transform-origin:center}
 ${HIDDEN}{opacity:0;transition:opacity .3s}
 .low .ant{fill:#E24B4A;animation:tw .5s infinite}.low .sweat{opacity:1;animation:drip 2.4s infinite}
 
@@ -318,7 +324,7 @@ const sideProps = (alien: string) => `<g class="smoke" fill="#B4B2A9"><circle cx
 <g class="canister" transform="translate(52,4)"><path d="M0 12 C -2 30, -26 30, -42 20" stroke="#888780" stroke-width="2" fill="none"/><g class="can"><rect x="-7" y="-16" width="14" height="30" rx="6" fill="#85B7EB"/><rect x="-7" y="-4" width="14" height="5" fill="#E6F1FB"/><rect x="-3" y="-20" width="6" height="5" rx="1.5" fill="#378ADD"/></g></g>
 <g class="tgt"><path d="M96 -50 ${STAR4}" fill="#FAC775"/></g>
 <g class="blocks" transform="translate(58,36)"><rect class="bk k1" x="-7" y="-8" width="14" height="8" rx="1" fill="#85B7EB"/><rect class="bk k2" x="-6" y="-16" width="12" height="8" rx="1" fill="#F0997B"/><rect class="bk k3" x="-5" y="-24" width="10" height="8" rx="1" fill="#97C459"/><path class="bk k4" d="M-5 -24 L0 -33 L5 -24 Z" fill="#D85A30"/></g>
-<g class="alien" transform="translate(-42,42)"><g class="al"><g stroke="#639922" stroke-width="1.3" fill="none" stroke-linecap="round"><path d="M-6 -18 Q-9 -23 -13.5 -23.5"/><path d="M6 -18 Q9 -23 13.5 -23.5"/></g><circle cx="-14.5" cy="-23.6" r="2" fill="#FAC775"/><circle cx="14.5" cy="-23.6" r="2" fill="#FAC775"/><ellipse cx="-5.5" cy="0.5" rx="3.4" ry="2" fill="#639922"/><ellipse cx="5.5" cy="0.5" rx="3.4" ry="2" fill="#639922"/><ellipse cx="-11" cy="-7" rx="2.2" ry="3.6" transform="rotate(25 -11 -7)" fill="#97C459" stroke="#639922" stroke-width=".8"/><ellipse cx="11" cy="-7" rx="2.2" ry="3.6" transform="rotate(-25 11 -7)" fill="#97C459" stroke="#639922" stroke-width=".8"/><path d="M-11 -3 C-12 -14 -7 -21 0 -21 C7 -21 12 -14 11 -3 Q11 0 8 0 H-8 Q-11 0 -11 -3 Z" fill="#97C459" stroke="#639922" stroke-width=".9"/><ellipse cx="0" cy="-3" rx="6" ry="2.8" fill="#C0DD97"/><path d="M-7.5 -14 q2 -4 6 -4.6" stroke="#FFFFFF" stroke-opacity=".5" stroke-width="1.6" fill="none" stroke-linecap="round"/><g class="aeo"><ellipse cx="-4" cy="-12" rx="3" ry="3.5" fill="#F4F2ED"/><ellipse cx="4" cy="-12" rx="3" ry="3.5" fill="#F4F2ED"/><circle cx="-3.4" cy="-12.6" r="1.9" fill="#173404"/><circle cx="4.6" cy="-12.6" r="1.9" fill="#173404"/><circle cx="-4" cy="-13.4" r=".7" fill="#FFFFFF"/><circle cx="4" cy="-13.4" r=".7" fill="#FFFFFF"/></g><g class="aeh" stroke="#173404" stroke-width="1.3" fill="none" stroke-linecap="round"><path d="M-6.2 -11.5 q2.2 -2.8 4.4 0"/><path d="M1.8 -11.5 q2.2 -2.8 4.4 0"/></g><ellipse cx="-7.4" cy="-8" rx="1.7" ry="1" fill="#ED93B1" fill-opacity=".8"/><ellipse cx="7.4" cy="-8" rx="1.7" ry="1" fill="#ED93B1" fill-opacity=".8"/><path d="M-1.6 -7.6 q1.6 1.5 3.2 0" stroke="#27500A" stroke-width=".9" fill="none" stroke-linecap="round"/></g><g transform="translate(-13,-27)"><path class="heart" d="M0 -2.5 C-1.5 -5.5 -6 -4.5 -5.5 -1 C-5 1.5 -2 3 0 5 C2 3 5 1.5 5.5 -1 C6 -4.5 1.5 -5.5 0 -2.5 Z" fill="#ED93B1" stroke="#D4537E" stroke-width=".6"/></g><text x="0" y="11" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="6.5" font-weight="600" letter-spacing=".2" fill="#C0DD97" stroke="#141B2D" stroke-width="2.2" paint-order="stroke">${escape(alien)}</text></g>
+<g class="alien" transform="translate(-42,42)"><g class="al"><g stroke="#639922" stroke-width="1.3" fill="none" stroke-linecap="round"><path d="M-6 -18 Q-9 -23 -13.5 -23.5"/><path d="M6 -18 Q9 -23 13.5 -23.5"/></g><circle cx="-14.5" cy="-23.6" r="2" fill="#FAC775"/><circle cx="14.5" cy="-23.6" r="2" fill="#FAC775"/><ellipse cx="-5.5" cy="0.5" rx="3.4" ry="2" fill="#639922"/><ellipse cx="5.5" cy="0.5" rx="3.4" ry="2" fill="#639922"/><ellipse cx="-11" cy="-7" rx="2.2" ry="3.6" transform="rotate(25 -11 -7)" fill="#97C459" stroke="#639922" stroke-width=".8"/><ellipse cx="11" cy="-7" rx="2.2" ry="3.6" transform="rotate(-25 11 -7)" fill="#97C459" stroke="#639922" stroke-width=".8"/><path d="M-11 -3 C-12 -14 -7 -21 0 -21 C7 -21 12 -14 11 -3 Q11 0 8 0 H-8 Q-11 0 -11 -3 Z" fill="#97C459" stroke="#639922" stroke-width=".9"/><ellipse cx="0" cy="-3" rx="6" ry="2.8" fill="#C0DD97"/><path d="M-7.5 -14 q2 -4 6 -4.6" stroke="#FFFFFF" stroke-opacity=".5" stroke-width="1.6" fill="none" stroke-linecap="round"/><g class="aeo"><ellipse cx="-4" cy="-12" rx="3" ry="3.5" fill="#F4F2ED"/><ellipse cx="4" cy="-12" rx="3" ry="3.5" fill="#F4F2ED"/><circle cx="-3.4" cy="-12.6" r="1.9" fill="#173404"/><circle cx="4.6" cy="-12.6" r="1.9" fill="#173404"/><circle cx="-4" cy="-13.4" r=".7" fill="#FFFFFF"/><circle cx="4" cy="-13.4" r=".7" fill="#FFFFFF"/></g><g class="aeh" stroke="#173404" stroke-width="1.3" fill="none" stroke-linecap="round"><path d="M-6.2 -11.5 q2.2 -2.8 4.4 0"/><path d="M1.8 -11.5 q2.2 -2.8 4.4 0"/></g><ellipse cx="-7.4" cy="-8" rx="1.7" ry="1" fill="#ED93B1" fill-opacity=".8"/><ellipse cx="7.4" cy="-8" rx="1.7" ry="1" fill="#ED93B1" fill-opacity=".8"/><path d="M-1.6 -7.6 q1.6 1.5 3.2 0" stroke="#27500A" stroke-width=".9" fill="none" stroke-linecap="round"/></g><g transform="translate(-13,-27)"><path class="heart" d="M0 -2.5 C-1.5 -5.5 -6 -4.5 -5.5 -1 C-5 1.5 -2 3 0 5 C2 3 5 1.5 5.5 -1 C6 -4.5 1.5 -5.5 0 -2.5 Z" fill="#ED93B1" stroke="#D4537E" stroke-width=".6"/></g><text class="atag" x="0" y="11" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="6.5" font-weight="600" letter-spacing=".2" fill="#C0DD97" stroke="#141B2D" stroke-width="2.2" paint-order="stroke">${escape(alien)}</text></g>
 <g class="const"><g fill="#FAC775"><circle class="cs" cx="52" cy="-72" r="1.8"/><circle class="cs s2" cx="68" cy="-58" r="1.8"/><circle class="cs s3" cx="86" cy="-66" r="1.8"/><circle class="cs s4" cx="98" cy="-46" r="1.8"/><circle class="cs s5" cx="80" cy="-36" r="1.8"/></g><path class="cline" d="M52 -72 L68 -58 L86 -66 L98 -46 L80 -36" stroke="#FAC775" stroke-width="1" fill="none" stroke-opacity=".7"/></g>
 <g class="board" transform="translate(-58,-18)"><rect x="-18" y="-13" width="36" height="26" rx="2" fill="#8C7A6B"/><rect x="-16" y="-11" width="32" height="22" fill="#27500A"/><g stroke="#EAF3DE" stroke-width="1.1" fill="none" stroke-linecap="round"><path class="ch" d="M-12 -6 q2 -3 4 0 t4 0"/><path class="ch c2" d="M-1 -6 h4 M1 -8 v4"/><path class="ch c3" d="M6 -8 q3 0 3 2 q0 2 -3 2 q3 0 3 2 q0 2 -3 2"/><path class="ch c4" d="M-12 4 h10 l-3 -2 M-2 4 l-3 2"/><path class="ch c5" d="M2 3 q4 -3 8 0 q-4 3 -8 0"/></g></g>
 <g class="fw">${[[-46, -62, '#F0997B', 0], [-6, -94, '#85B7EB', 0.5], [72, -38, '#FAC775', 1]].map(([x, y, c, d]) => `<g transform="translate(${x},${y})"><g class="burst" style="animation-delay:${d}s"><path d="M0 -4 V-12 M0 4 V12 M-4 0 H-12 M4 0 H12 M3 -3 L8.5 -8.5 M-3 3 L-8.5 8.5 M3 3 L8.5 8.5 M-3 -3 L-8.5 -8.5" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/></g></g>`).join('')}</g>`
@@ -413,9 +419,17 @@ const BUBBLES = `<g transform="translate(38,-64)">
 </g>
 <g class="zz" stroke="#D3D1C7" stroke-width="1.6" fill="none"><path d="M24 -60 h6 l-6 6 h6"/><path d="M32 -70 h5 l-5 5 h5" style="animation-delay:1s"/><path d="M40 -80 h4 l-4 4 h4" style="animation-delay:2s"/></g>`
 
-export function svgFor(b: Buddy, name: string, alien: string): string {
+// The root's classes pick the state: st-<mood>, v-<tool>, a-<version>, and
+// low when the oxygen is nearly out.
+function rootClass(b: Buddy): string {
   const alt = Math.max(0, Math.min((ALTS[b.mood] ?? 1) - 1, b.alt ?? 0))
   const low = b.o2 !== null && b.o2 < LOW_O2 ? ' low' : ''
+  return `st-${b.mood} v-${b.tool} a-${alt}${low}`
+}
+
+// The astronaut with its tether, props and bubble, centered on its shoulders.
+// The panel and the banner both place this same drawing.
+function rigFor(b: Buddy, alien: string): string {
   const body = `<g class="flip">
 ${JET}<rect x="-24" y="-2" width="48" height="38" rx="7" fill="#C9C4BA"/>
 <rect x="-15" y="30" width="12" height="16" rx="5" fill="#E4E0D8" stroke="#B9B3A7" stroke-width=".8"/><rect x="-16" y="42" width="14" height="8" rx="3" fill="#8A8F9C"/>
@@ -423,10 +437,65 @@ ${JET}<rect x="-24" y="-2" width="48" height="38" rx="7" fill="#C9C4BA"/>
 <rect x="-20" y="0" width="40" height="38" rx="11" ${SUIT}/>
 <rect x="-11" y="12" width="22" height="11" rx="2" fill="#2C3A4F"/><rect x="-8" y="15" width="16" height="5" rx="1" fill="#1A2333"/>${gauge(b.o2)}<rect class="refill" x="-8" y="15" width="16" height="5" rx="1" fill="#5DCAA5"/>
 ${MAP}${LOGB}${CTRL}${ARM_L}${HEAD}${LAPTOP}${SPARKS}${GLASS}${ARM_R}${SBAG}</g>`
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 240" width="340" height="240" class="st-${b.mood} v-${b.tool} a-${alt}${low}">
+  return `<g class="enter"><g class="rig"><path d="M-14 22 C -50 52, -100 40, -200 84" stroke="#8A8F9C" stroke-width="2" fill="none"/>
+<g class="sway">${sideProps(alien)}${body}${FRONT_PROPS}${BUBBLES}</g></g></g>`
+}
+
+// The big scene for the side panel that /astronaut opens.
+export function svgFor(b: Buddy, name: string, alien: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 240" width="340" height="240" class="${rootClass(b)}">
 <title>${escape(describe(b, name, alien))}</title><style>${STYLE}</style>
 <defs><clipPath id="scn"><rect width="340" height="240" rx="8"/></clipPath></defs>
 <g clip-path="url(#scn)">${BACKDROP}
-<g transform="translate(170,120)"><g class="enter"><g class="rig"><path d="M-14 22 C -50 52, -100 40, -200 84" stroke="#8A8F9C" stroke-width="2" fill="none"/>
-<g class="sway">${sideProps(alien)}${body}${FRONT_PROPS}${BUBBLES}</g></g></g></g></g></svg>`
+<g transform="translate(170,120)">${rigFor(b, alien)}</g></g></svg>`
+}
+
+// The banner above the prompt box. It is drawn far wider than any chat and
+// cut to the width it gets (left-aligned), so the astronaut and the words
+// keep their size and the stars run to the edge however wide the window is.
+export const BAND_HEIGHT = 88
+const BAND_WIDTH = 2400
+const FONT = 'font-family="system-ui,-apple-system,Segoe UI,sans-serif"'
+
+// Where the words start, clear of the props the astronaut swings out.
+const BAND_TEXT_X = 158
+
+// Stars at fixed spots (a seeded sequence, so they don't jump on redraw).
+const BAND_SKY = (() => {
+  let seed = 7
+  const next = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+  let stars = ''
+  for (let i = 0; i < 120; i++) {
+    const x = next() * BAND_WIDTH
+    const y = 4 + next() * (BAND_HEIGHT - 8)
+    const r = (0.6 + next() * 0.9).toFixed(1)
+    const twinkle = i % 3 === 0 ? ` class="tw" style="animation-delay:${(next() * 3).toFixed(1)}s"` : ''
+    // Keep the sky behind the words clear, so no star reads as punctuation.
+    if (x > BAND_TEXT_X - 8 && x < BAND_TEXT_X + 420 && y > 18 && y < 68) continue
+    stars += `<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${r}"${twinkle}/>`
+  }
+  const planets = ([
+    [640, 112, 46], [1500, 22, 7], [2050, 118, 52],
+  ] as const).map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#2A3550"/>` +
+    (r > 20 ? `<circle cx="${x - r * 0.35}" cy="${y - r * 0.55}" r="${(r * 0.14).toFixed(1)}" fill="#334063"/><circle cx="${x + r * 0.3}" cy="${y - r * 0.75}" r="${(r * 0.09).toFixed(1)}" fill="#334063"/>` : '')).join('')
+  return `<rect width="${BAND_WIDTH}" height="${BAND_HEIGHT}" fill="#141B2D"/>${planets}<g fill="#E6F1FB" fill-opacity=".85">${stars}</g>`
+})()
+
+function bandText(b: Buddy, name: string, alien: string): string {
+  const action = `<tspan font-weight="600" fill="#E6F1FB">${escape(name)}</tspan> ${escape(doingOf(b, alien))}`
+  if (b.o2 === null) {
+    return `<text x="${BAND_TEXT_X}" y="49" ${FONT} font-size="15" fill="#C9D3E3">${action}</text>`
+  }
+  const left = Math.max(0, Math.min(1, b.o2))
+  const color = left > 0.5 ? '#5DCAA5' : left > LOW_O2 ? '#EF9F27' : '#E24B4A'
+  const words = left < LOW_O2 ? '#F09595' : '#8FA3BF'
+  return `<text x="${BAND_TEXT_X}" y="41" ${FONT} font-size="15" fill="#C9D3E3">${action}</text>
+<g transform="translate(${BAND_TEXT_X},51)"><rect width="64" height="6" rx="1" fill="#1A2333" stroke="#2C3A4F" stroke-width=".8"/><rect width="${(64 * left).toFixed(1)}" height="6" rx="1" fill="${color}"/><text x="74" y="6.5" ${FONT} font-size="12" fill="${words}">Oxygen ${Math.round(left * 100)}%</text></g>`
+}
+
+export function bandFor(b: Buddy, name: string, alien: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BAND_WIDTH} ${BAND_HEIGHT}" width="${BAND_WIDTH}" height="${BAND_HEIGHT}" preserveAspectRatio="xMinYMid slice" class="${rootClass(b)} band">
+<title>${escape(describe(b, name, alien))}</title><style>${STYLE}</style>${BAND_SKY}
+<g transform="translate(72,52) scale(.58)">${rigFor(b, alien)}</g>
+${bandText(b, name, alien)}</svg>`
 }

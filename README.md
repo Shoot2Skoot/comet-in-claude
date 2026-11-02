@@ -1,6 +1,6 @@
 # Astronaut buddy
 
-A little astronaut who floats in a panel beside your Claude Code chat and acts out what Claude is doing. The default name is Comet. The little alien Comet sometimes pats is called Blip. You can rename either one when you install the mod, or later in `/config` (the alien's name can be up to 16 characters).
+A little astronaut who floats in a strip of space just above your prompt box and acts out what Claude is doing, with a line beside it saying what that is and how much oxygen (free context) is left. The default name is Comet. The little alien Comet sometimes pats is called Blip. You can rename either one when you install the mod, or later in `/config` (the alien's name can be up to 16 characters).
 
 ## Install
 
@@ -59,4 +59,4 @@ Every state has a symbol bubble in the same spot by the helmet, so you can tell 
 
 The gauge on the chest is oxygen: the share of the context window still free. It drains as the conversation grows (green, then amber, then red) and refills after a compaction. Below 20% the antenna light turns red and blinks, and the astronaut starts to sweat.
 
-Type `/astronaut` to bring the panel back if you close it. In a terminal without the panel's picture, it shows one line of text instead, like "Comet is welding, oxygen 64%".
+Click `[-]` beside the strip to collapse it. Type `/astronaut` to open a bigger version in a side panel. In a terminal, where there's no picture, the strip is one line of text instead, like "Comet is welding, oxygen 64%".

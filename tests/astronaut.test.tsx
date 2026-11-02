@@ -16,6 +16,19 @@ const PANE = {
   },
 } as const
 
+const BAND = {
+  plugin: 'astronaut-buddy',
+  component: 'AbovePrompt',
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 20,
+    bodyColumns: 80,
+    scroll: { offset: 0, bodyRows: 20 },
+    view: {},
+  },
+} as const
+
 // The engine beneath the mod: each hook here answers as a session would.
 // `percent` is how much of the context window is in use.
 function world(on: On, percent = 30) {
@@ -29,6 +42,8 @@ function world(on: On, percent = 30) {
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('prompt.submit', (_, e) => ({ text: e.text }) as never)
+  // No settings hook beneath: a permission prompt passes with no decision.
+  on('classic.PermissionRequest', () => ({}))
 
   return clock
 }
@@ -193,7 +208,8 @@ test('the text-only view uses the default name', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
   await clock.advance(4000)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toContain('Comet is floating')
+  // Idle floats, or pats the alien one time in seven.
+  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Comet is (floating|patting Blip)/)
   await ui.unmount()
 })
 
@@ -202,7 +218,7 @@ test('the name option renames the astronaut', { options: { name: 'Pip' } }, asyn
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
   await clock.advance(4000)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toContain('Pip is floating')
+  expect((await ui.find({ type: 'Text' }))?.text).toMatch(/^Pip is (floating|patting Blip)/)
   await ui.unmount()
 })
 
@@ -236,6 +252,51 @@ test('the alienName option renames the alien, on its tag too', { options: { alie
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text' }))?.text).toContain('Comet is patting Zorbelina the Ma')
   await ui.unmount()
+})
+
+test('the banner above the prompt shows the astronaut and what it is doing', async ($, on) => {
+  world(on, 38)
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svg = await ui.find({ type: 'Svg' })
+  await ui.unmount()
+  expect(svg?.props.height).toBe(88)
+  const source = String(svg?.props.source ?? '')
+  expect(source).toContain('class="st-think')
+  expect(source).toContain('</tspan> is thinking</text>')
+  expect(source).toContain('Oxygen 62%')
+  const text = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await text.find({ type: 'Text' }))?.text).toContain('Comet is thinking, oxygen 62%')
+  await text.unmount()
+})
+
+test('a survey gets the band to itself', async ($, on) => {
+  world(on)
+  // The engine's own band beneath the mod: here it draws nothing.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+
+    return <Box />
+  })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, hasSurvey: true } })
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a permission prompt put to you gets the frantic wave', async ($, on) => {
+  world(on)
+  await begin($)
+  expect(await scene($)).toContain('class="st-think')
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } } as never)
+  expect(await scene($)).toContain('class="st-wait')
+})
+
+test('a question to you is not a permission prompt', async ($, on) => {
+  world(on)
+  await begin($)
+  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: {} } as never)
+  expect(await scene($)).not.toContain('class="st-wait')
 })
 
 test('idle switches to a different idle animation every 30 seconds', async ($, on) => {
