@@ -270,8 +270,9 @@ test('the banner above the prompt shows the astronaut and what it is doing', asy
   const box = await ui.find({ type: 'Box' })
   const svg = await ui.find({ type: 'Svg' })
   await ui.unmount()
-  // A full-width box around it, so the drawing has the band's width to fill.
+  // A full-width box around it, and drawn as an image, so it takes that width.
   expect(box?.props.width).toBe('100%')
+  expect(svg?.props.isInteractive).toBeUndefined()
   expect(svg?.props.height).toBe(88)
   const source = String(svg?.props.source ?? '')
   expect(source).toContain('class="st-think')
@@ -375,9 +376,17 @@ test('fuel is the weekly limit still unused, with when it refuels', async ($, on
   expect(source).toContain('>Fuel</text>')
   expect(source).toContain('58%<tspan')
   expect(source).toContain('refuels ')
-  // The five-hour window isn't shown.
+  // A weekly window under a longer name still counts; the five-hour one isn't shown.
+  expect(fuelFrom([{ kind: 'seven_day_opus', percentUsed: 10 }])?.left).toBe(0.9)
   expect(await readout($)).not.toContain('20%')
   expect(fuelFrom([{ kind: 'five_hour', percentUsed: 80 }])).toBeNull()
+})
+
+test('/astronaut says which usage windows the app reports', async ($, on) => {
+  world(on, 30, [{ kind: 'seven_day', percentUsed: 42 }])
+  await begin($)
+  const answer = await $.command.run({ command: 'astronaut', args: '', origin: { kind: 'composer' } } as never)
+  expect(JSON.stringify(answer)).toContain('seven_day 42% used')
 })
 
 test('without a weekly limit there is no fuel gauge', async ($, on) => {

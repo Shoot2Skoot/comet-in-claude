@@ -13,7 +13,8 @@ export function field(input: unknown, key: string): string {
 
 // Fuel: the weekly usage limit still unused. Other windows aren't shown.
 export function fuelFrom(limits: readonly SessionRateLimit[]): Fuel | null {
-  const week = limits.find(limit => limit.kind === 'seven_day')
+  const week =
+    limits.find(limit => limit.kind === 'seven_day') ?? limits.find(limit => /seven_day|week/i.test(limit.kind))
   if (!week) return null
   return { left: Math.max(0, Math.min(1, 1 - week.percentUsed / 100)), resetsAt: week.resetsAt }
 }

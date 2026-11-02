@@ -224,10 +224,14 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // Opens the bigger panel, and says which usage windows the app reports, so
+  // a missing fuel gauge can be told apart from a limit that isn't sent.
   on('command.run', { command: 'astronaut' }, async $ => {
     await $.ui.open({ id: PANE, title: name })
+    const usage = await $.session.usage().catch(() => undefined)
+    const windows = (usage?.rateLimits ?? []).map(limit => `${limit.kind} ${limit.percentUsed}% used`).join(', ')
 
-    return { text: `${name} is here.` }
+    return { text: `${name} is here. Usage windows reported: ${windows || 'none yet'}.` }
   })
 
   // A new prompt wakes a sleeping astronaut with a stretch first.
@@ -370,11 +374,12 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'desktop') return next(e)
     const { Box, Svg } = $.ui.resolve(e)
 
-    // The box takes the band's whole width, so the drawing inside has a width
-    // to fill instead of falling back to a narrow default.
+    // Drawn as an image, not an interactive frame: an image takes the band's
+    // width the way any picture does (a frame can stay at a narrow default),
+    // and its CSS animation still plays. The box takes the band's whole width.
     return (
       <Box flexGrow={1} width="100%">
-        <Svg source={bandFor(state, name, alien)} alt={describe(state, name, alien)} height={BAND_HEIGHT} isInteractive />
+        <Svg source={bandFor(state, name, alien)} alt={describe(state, name, alien)} height={BAND_HEIGHT} />
       </Box>
     )
   }).catch(($, e, next) => next(e))
